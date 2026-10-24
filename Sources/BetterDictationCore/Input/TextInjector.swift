@@ -36,7 +36,7 @@ public enum TextInjector {
         guard let source = CGEventSource(stateID: .combinedSessionState) else { return false }
 
         for chunk in split(text) {
-            var units = Array(chunk.utf16)
+            let units = Array(chunk.utf16)
             guard
                 let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
                 let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)

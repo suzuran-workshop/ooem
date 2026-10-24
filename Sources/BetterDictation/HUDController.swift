@@ -83,12 +83,16 @@ final class HUDController {
         return panel
     }
 
+    /// 惰性创建浮层；首次显示时才建 NSWindow。
+    private func ensurePanel() -> NSPanel {
+        if let panel { return panel }
+        let created = makePanel()
+        panel = created
+        return created
+    }
+
     private func layoutPanel() {
-        let panel = panel ?? {
-            let p = makePanel()
-            panel = p
-            return p
-        }()
+        let panel = ensurePanel()
 
         let textHeight = messageLabel.sizeThatFits(
             NSSize(width: panelWidth - 36, height: .greatestFiniteMagnitude)
