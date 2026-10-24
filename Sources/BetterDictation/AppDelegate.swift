@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItem.update(state: .idle, binding: Settings.binding)
         statusItem.refreshPermissions()
+        statusItem.refreshLaunchAtLogin()
 
         hotkey.binding = Settings.binding
         requestInitialPermissions()
@@ -37,27 +38,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func wireActions() {
         statusItem.onToggle = { [weak self] in self?.dictation.toggle() }
         statusItem.onBind = { [weak self] in self?.beginBinding() }
+        statusItem.onToggleLaunchAtLogin = { [weak self] in self?.toggleLaunchAtLogin() }
         statusItem.onOpenLog = { NSWorkspace.shared.open(logFileURL()) }
         statusItem.onQuit = { NSApp.terminate(nil) }
         statusItem.onFixPermissions = { [weak self] in self?.handlePermissionRequest() }
 
-        dictation.onStateChange = { [weak self] state, partial in
+        dictation.onStateChange = { [weak self] state in
             guard let self else { return }
             self.statusItem.update(state: state, binding: Settings.binding)
             self.hotkey.isEscapeEnabled = (state == .listening || state == .finishing)
-
-            switch state {
-            case .listening:
-                self.hud.show(title: "聆听中…（再按一次结束）", body: partial)
-            case .finishing:
-                self.hud.show(title: "识别中…", body: partial)
-            case .idle:
-                self.hud.hide()
-            }
+            // 听写过程不弹任何浮层：结果直接打进焦点窗口
+            if state == .idle { self.hud.hide() }
         }
 
         dictation.onError = { [weak self] message in
-            self?.hud.show(title: "出错了", body: message, autoHideAfter: 4)
+            self?.hud.show("⚠︎ \(message)", autoHideAfter: 4)
             log("错误：\(message)")
         }
 
@@ -111,18 +106,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: - 开机自启
+
+    private func toggleLaunchAtLogin() {
+        let target = !LaunchAtLogin.isEnabled
+        do {
+            try LaunchAtLogin.setEnabled(target)
+            statusItem.refreshLaunchAtLogin()
+            hud.show(target ? "已开启开机自启" : "已关闭开机自启", autoHideAfter: 1.8)
+        } catch {
+            hud.show("开机自启设置失败：\(error.localizedDescription)", autoHideAfter: 4)
+            log("开机自启设置失败：\(error)")
+        }
+    }
+
     // MARK: - 绑定
 
     private func beginBinding() {
         guard hotkey.isRunning else {
-            hud.show(title: "需要辅助功能权限",
-                     body: "系统设置 → 隐私与安全性 → 辅助功能，勾选 BetterDictation",
-                     autoHideAfter: 5)
+            hud.show("需要辅助功能权限\n系统设置 → 隐私与安全性 → 辅助功能", autoHideAfter: 5)
             handlePermissionRequest()
             return
         }
         hotkey.isCapturing = true
-        hud.show(title: "绑定唤醒键", body: "请按下想用的按键（推荐 F5）")
+        hud.show("请按下想用的按键（推荐 F5）")
         log("进入绑定模式")
     }
 
@@ -130,9 +137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Settings.binding = binding
         hotkey.binding = binding
         statusItem.update(state: dictation.state, binding: binding)
-        hud.show(title: "已绑定 \(binding.label)",
-                 body: "按 \(binding.label) 开始，再按一次结束并输入",
-                 autoHideAfter: 2.5)
+        hud.show("已绑定 \(binding.label)", autoHideAfter: 1.8)
         log("绑定完成：\(binding.kind.rawValue) \(binding.code) (\(binding.label))")
     }
 }

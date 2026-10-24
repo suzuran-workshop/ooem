@@ -5,6 +5,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     var onToggle: (() -> Void)?
     var onBind: (() -> Void)?
+    var onToggleLaunchAtLogin: (() -> Void)?
     var onOpenLog: (() -> Void)?
     var onQuit: (() -> Void)?
     var onFixPermissions: (() -> Void)?
@@ -13,14 +14,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusMenuItem = NSMenuItem(title: "就绪", action: nil, keyEquivalent: "")
     private let toggleMenuItem = NSMenuItem(title: "开始听写", action: #selector(toggleTapped), keyEquivalent: "")
     private let bindMenuItem = NSMenuItem(title: "绑定唤醒键…", action: #selector(bindTapped), keyEquivalent: "")
+    private let launchAtLoginMenuItem = NSMenuItem(title: "开机自启", action: #selector(launchAtLoginTapped), keyEquivalent: "")
     private let permissionMenuItem = NSMenuItem(title: "检查权限", action: #selector(permissionTapped), keyEquivalent: "")
-
-    private var bindingLabel = "未绑定"
 
     override init() {
         super.init()
         buildMenu()
-        setIcon("mic")
+        statusItem.button?.image = StatusIcon.image(for: .idle)
+        statusItem.button?.toolTip = "BetterDictation"
     }
 
     private func buildMenu() {
@@ -36,6 +37,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         bindMenuItem.target = self
         menu.addItem(bindMenuItem)
+
+        launchAtLoginMenuItem.target = self
+        menu.addItem(launchAtLoginMenuItem)
 
         menu.addItem(.separator())
 
@@ -54,32 +58,23 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         statusItem.menu = menu
     }
 
-    func setIcon(_ symbolName: String) {
-        guard let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "BetterDictation") else { return }
-        image.isTemplate = true
-        statusItem.button?.image = image
-        statusItem.button?.toolTip = "BetterDictation"
-    }
-
     func update(state: DictationController.State, binding: HotkeyBinding?) {
-        bindingLabel = binding?.label ?? "未绑定"
-        bindMenuItem.title = "绑定唤醒键…（当前：\(bindingLabel)）"
+        bindMenuItem.title = "绑定唤醒键…（当前：\(binding?.label ?? "未绑定")）"
 
         switch state {
         case .idle:
-            statusMenuItem.title = "就绪 · \(bindingLabel)"
+            statusMenuItem.title = "就绪 · \(binding?.label ?? "未绑定")"
             toggleMenuItem.title = "开始听写"
-            setIcon("mic")
         case .listening:
             statusMenuItem.title = "聆听中…"
-            toggleMenuItem.title = "停止并输入"
-            setIcon("mic.fill")
+            toggleMenuItem.title = "停止并完成"
         case .finishing:
             statusMenuItem.title = "识别中…"
             toggleMenuItem.title = "识别中…"
-            setIcon("waveform")
         }
         toggleMenuItem.isEnabled = state != .finishing
+
+        statusItem.button?.image = StatusIcon.image(for: state)
     }
 
     func refreshPermissions() {
@@ -88,15 +83,21 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         permissionMenuItem.title = "权限：麦克风 \(mic)　辅助功能 \(ax)"
     }
 
+    func refreshLaunchAtLogin() {
+        launchAtLoginMenuItem.state = LaunchAtLogin.isEnabled ? .on : .off
+    }
+
     // MARK: - Actions
 
     @objc private func toggleTapped() { onToggle?() }
     @objc private func bindTapped() { onBind?() }
+    @objc private func launchAtLoginTapped() { onToggleLaunchAtLogin?() }
     @objc private func logTapped() { onOpenLog?() }
     @objc private func quitTapped() { onQuit?() }
     @objc private func permissionTapped() { onFixPermissions?() }
 
     func menuWillOpen(_ menu: NSMenu) {
         refreshPermissions()
+        refreshLaunchAtLogin()
     }
 }

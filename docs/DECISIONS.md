@@ -43,3 +43,27 @@ Karabiner 的 DriverKit 虚拟设备接管层级更低、更稳，但需要安�
 ## D8：不做 Xcode 工程
 
 无 Xcode 环境下 `xcodebuild` 不可用；SwiftPM + 手写 `Info.plist` + `codesign --sign -` 足以产出可运行的 `.app`。代价是每次重编 cdhash 变化会导致 TCC 重新授权（见 README）。
+
+## D9：边识别边注入，不在 GUI 里回显
+
+系统听写的交互是「字直接出现在输入框」，用户已经习惯。原实现把中间结果画在浮层里，既突兀又多余。
+
+**做法**：`LiveTyper` 把服务端的累积全文与本地「已注入字符串」做差：
+- 累积文本以已注入内容为前缀 → 只输入新增部分（主流路径）；
+- 否则（服务端修正）→ 回退到公共前缀，发 N 次退格后重打剩余部分。
+
+**代价**：如果用户中途把光标移走，后续文字会落到新位置；这与系统听写一致，属于固有约束。
+
+## D10：听写过程零浮层
+
+只在「绑定按键」和「错误提示」时显示浮层，且强制深色外观（`NSAppearance(.darkAqua)`）—— 避免浅色模式下变成一块白色圆角。听写状态完全通过菜单栏图标表达（BT + 麦克风 / 实心麦克风 / 波形）。
+
+## D11：开机自启优先 SMAppService，失败回退 LaunchAgent
+
+`SMAppService.mainApp` 要求可信签名与稳定位置；ad-hoc 签名、或从 `dist/` 直接运行时可能被拒。因此注册失败时自动写 `~/Library/LaunchAgents/io.xrl.BetterDictation.plist`（`RunAtLoad`）。两条路径都会写日志，菜单勾选状态来自实际探测。
+
+## D12：CI 在 macOS runner 上产出 arm64 包
+
+`.github/workflows/build.yml`：`swift test` → `scripts/build-app.sh` → `ditto` 打包 → 上传 artifact；打 `v*` tag 时自动建 Release。GitHub 的 `macos-15` runner 是 Apple Silicon，因此产物天然 arm64。
+
+ad-hoc 签名的包分发后会被 Gatekeeper 隔离，README 给出了 `xattr -dr com.apple.quarantine` 的处理步骤。

@@ -1,36 +1,30 @@
 import AppKit
 
-/// 屏幕底部中央的非激活浮层：显示状态与实时转写。
+/// 极简浮层：只用于「绑定按键」和「错误提示」，听写过程完全不打扰。
+/// 强制深色外观，避免浅色模式下变成一块白色圆角。
 final class HUDController {
 
     private var panel: NSPanel?
-    private let titleLabel = NSTextField(labelWithString: "")
-    private let bodyLabel = NSTextField(wrappingLabelWithString: "")
+    private let messageLabel = NSTextField(wrappingLabelWithString: "")
     private var hideWork: DispatchWorkItem?
 
-    private let panelWidth: CGFloat = 520
-    private let horizontalInset: CGFloat = 18
-    private let maxBodyWidth: CGFloat = 484
+    private let panelWidth: CGFloat = 420
 
     init() {
-        titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
-        titleLabel.textColor = .secondaryLabelColor
-        bodyLabel.font = .systemFont(ofSize: 15, weight: .regular)
-        bodyLabel.textColor = .labelColor
-        bodyLabel.maximumNumberOfLines = 4
-        bodyLabel.preferredMaxLayoutWidth = maxBodyWidth
+        messageLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        messageLabel.textColor = .white
+        messageLabel.maximumNumberOfLines = 3
+        messageLabel.alignment = .center
+        messageLabel.preferredMaxLayoutWidth = panelWidth - 36
     }
 
     // MARK: - 对外
 
-    func show(title: String, body: String = "", autoHideAfter: TimeInterval? = nil) {
+    func show(_ message: String, autoHideAfter: TimeInterval? = nil) {
         hideWork?.cancel()
         hideWork = nil
 
-        titleLabel.stringValue = title
-        bodyLabel.stringValue = body
-        bodyLabel.isHidden = body.isEmpty
-
+        messageLabel.stringValue = message
         layoutPanel()
         panel?.orderFrontRegardless()
 
@@ -51,11 +45,12 @@ final class HUDController {
 
     private func makePanel() -> NSPanel {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: 80),
+            contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: 56),
             styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: false
         )
+        panel.appearance = NSAppearance(named: .darkAqua)
         panel.isFloatingPanel = true
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
@@ -72,21 +67,16 @@ final class HUDController {
         effect.blendingMode = .behindWindow
         effect.state = .active
         effect.wantsLayer = true
-        effect.layer?.cornerRadius = 16
+        effect.layer?.cornerRadius = 14
         effect.layer?.masksToBounds = true
 
-        let stack = NSStackView(views: [titleLabel, bodyLabel])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 4
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        effect.addSubview(stack)
+        messageLabel.translatesAutoresizingMaskIntoConstraints = false
+        effect.addSubview(messageLabel)
 
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: horizontalInset),
-            stack.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -horizontalInset),
-            stack.topAnchor.constraint(equalTo: effect.topAnchor, constant: 12),
-            stack.bottomAnchor.constraint(equalTo: effect.bottomAnchor, constant: -12),
+            messageLabel.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 18),
+            messageLabel.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -18),
+            messageLabel.centerYAnchor.constraint(equalTo: effect.centerYAnchor),
         ])
 
         panel.contentView = effect
@@ -100,20 +90,19 @@ final class HUDController {
             return p
         }()
 
-        var height: CGFloat = 12 + 16 + 12
-        if !bodyLabel.stringValue.isEmpty {
-            let size = bodyLabel.sizeThatFits(NSSize(width: maxBodyWidth, height: .greatestFiniteMagnitude))
-            height += 4 + size.height
-        }
-        height = max(height, 52)
+        let textHeight = messageLabel.sizeThatFits(
+            NSSize(width: panelWidth - 36, height: .greatestFiniteMagnitude)
+        ).height
+        let height = max(44, textHeight + 22)
 
         guard let screen = NSScreen.main else { return }
-        let frame = NSRect(
-            x: screen.visibleFrame.midX - panelWidth / 2,
-            y: screen.visibleFrame.minY + 96,
-            width: panelWidth,
-            height: height
+        panel.setFrame(
+            NSRect(x: screen.visibleFrame.midX - panelWidth / 2,
+                   y: screen.visibleFrame.minY + 110,
+                   width: panelWidth,
+                   height: height),
+            display: true,
+            animate: false
         )
-        panel.setFrame(frame, display: true, animate: false)
     }
 }

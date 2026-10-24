@@ -31,10 +31,13 @@ F5 down (CGEventTap, HID 层)
       → AVAudioConverter         → 16k/1ch/Int16
       → Data(2 bytes × N)
   → IFlytekClient.feed()         攒 1280 样本 → base64 → JSON 帧
+  → IFlytekClient.onPartial(累积全文)
+      → LiveTyper.update()       与「已注入内容」做差 → 只补增量
+      → TextInjector.type(delta) CGEvent 逐段 Unicode 注入（边说边出现）
 F5 down（第二次）
   → AudioCapture.stop()
   → IFlytekClient.finish()       status:2 尾帧 → 等服务端 ls:true（6s 超时）
-  → TextInjector.type(text)      CGEvent 逐段 Unicode 注入
+  → LiveTyper.update(终稿)       只补最后的增量，不重复已注入部分
 ```
 
 ## 模块职责
@@ -46,7 +49,8 @@ F5 down（第二次）
 | `ASR/IFlytekProtocol` | 80ms 分帧器、首帧/后续帧 JSON、下行帧解析 |
 | `ASR/IFlytekClient` | URLSessionWebSocketTask 会话：推流、背压、结果累积、收尾超时 |
 | `Audio/AudioCapture` | AVAudioEngine tap + AVAudioConverter；麦克风授权 |
-| `Input/TextInjector` | 按 UTF-16 码元切块（不拆代理对）后逐段注入 |
+| `Input/TextInjector` | 按 UTF-16 码元切块（不拆代理对）后逐段注入；退格回退 |
+| `Input/LiveTyper` | 累积全文与已注入内容的差量规划（纯函数 `plan`，可单测） |
 | `Hotkey/HotkeyMonitor` | HID 层事件 tap；键码与 `NX_KEYTYPE` 双路；吞事件；超时自愈 |
 | `Hotkey/HotkeyBinding` | 绑定模型（Codable）+ 人类可读键名 |
 | `Permissions` | 麦克风 / 辅助功能查询、系统设置深链 |

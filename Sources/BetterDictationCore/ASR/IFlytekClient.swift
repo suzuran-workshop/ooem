@@ -24,6 +24,8 @@ public final class IFlytekClient {
     public var onPartial: ((String) -> Void)?
     /// 错误，主线程回调。
     public var onError: ((Error) -> Void)?
+    /// 服务端主动结束本段（VAD 判定说完）——本端仍在录音时回调，用于无缝续接新会话。
+    public var onAutoFinish: ((String) -> Void)?
 
     private let config: IFlytekConfig
     private let queue = DispatchQueue(label: "io.xrl.betterdictation.asr")
@@ -199,6 +201,7 @@ public final class IFlytekClient {
 
     private func resolveFinal() {
         guard !resolved else { return }
+        let serverInitiated = !stoppedFeeding
         resolved = true
         timeoutWork?.cancel()
         timeoutWork = nil
@@ -209,6 +212,11 @@ public final class IFlytekClient {
         teardown()
         cont?.resume(returning: text)
         log("ASR 会话结束：\(text.isEmpty ? "(空)" : text)")
+
+        // 服务端因 VAD 说完而提前收尾：通知上层续接，避免停顿后的语音丢失
+        if serverInitiated {
+            DispatchQueue.main.async { self.onAutoFinish?(text) }
+        }
     }
 
     private func teardown() {

@@ -1,0 +1,59 @@
+name: build
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build .app
+    # macOS 14+ 的 GitHub 托管 runner 为 Apple Silicon，产出 arm64 包
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 工具链版本
+        run: |
+          sw_vers
+          swift --version
+
+      - name: 单元测试
+        run: swift test
+
+      - name: 构建 .app
+        run: ./scripts/build-app.sh release
+
+      - name: 打包
+        run: |
+          set -euo pipefail
+          ditto -c -k --keepParent dist/BetterDictation.app dist/BetterDictation-macos-arm64.zip
+          shasum -a 256 dist/BetterDictation-macos-arm64.zip \
+            | tee dist/BetterDictation-macos-arm64.zip.sha256
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: BetterDictation-macos-arm64
+          if-no-files-found: error
+          path: |
+            dist/BetterDictation-macos-arm64.zip
+            dist/BetterDictation-macos-arm64.zip.sha256
+
+      - name: 发布 Release（tag 触发）
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/BetterDictation-macos-arm64.zip
+            dist/BetterDictation-macos-arm64.zip.sha256
+          generate_release_notes: true
