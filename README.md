@@ -4,7 +4,7 @@
 
 macOS 菜单栏小工具。按下唤醒键开始录音，识别结果在说话过程中就逐段注入当前焦点窗口；再按一次结束并补齐终稿。全程不写剪贴板、不弹浮层、不抢焦点。
 
-协议实现移植自 [`vow`](../vow) 的 `iflytek-asr`，但这里是**宿主本机麦克风直连**，不再依赖手机或虚拟声卡。
+协议实现移植自 [`vow`](https://github.com/wpy030414/vow) 的 `iflytek-asr`，但这里是**宿主本机麦克风直连**，不再依赖手机或虚拟声卡。
 
 ![build](https://github.com/wpy030414/BetterDictation/actions/workflows/build.yml/badge.svg)
 
@@ -13,7 +13,7 @@ macOS 菜单栏小工具。按下唤醒键开始录音，识别结果在说话�
 | 功能 | 说明 |
 |------|------|
 | F5 接管 | CGEventTap 于 HID 层监听，普通键 / 系统专用键（`NX_KEYTYPE`）双路识别，首次运行按一下即可绑定 |
-| 边识别边打字 | 分句边界一到就直接写入焦点窗口；服务端修正时自动回退到公共前缀重打 |
+| 边识别边打字 | 本地 VAD 在停顿 250ms 后主动收尾会话，文字立刻写入焦点窗口；服务端修正时自动回退到公共前缀重打 |
 | 零打扰 | 听写过程**没有任何浮层**，状态只在菜单栏图标上体现 |
 | 光标注入 | `CGEvent` Unicode 逐段注入，绕过输入法，不污染剪贴板 |
 | 开机自启 | 菜单一键开关；优先 `SMAppService`，被拒则回退 `LaunchAgents` |
@@ -28,9 +28,11 @@ macOS 菜单栏小工具。按下唤醒键开始录音，识别结果在说话�
 
 ```bash
 swift build            # 编译
-swift test             # 25 个单测
+swift test             # 35 个单测
 ./scripts/build-app.sh # 产出 dist/BetterDictation.app 并 ad-hoc 签名
 ```
+
+版本号只有一处：`Sources/BetterDictationCore/Support/AppVersion.swift` 里的 `marketing`。改完 push 后，CI 会以 `v<marketing>` 发 Release；同一版本再次 push 会更新该 Release 的资产。`Info.plist` 在打包时自动写入，菜单栏菜单里也能看到当前版本。
 
 想要「装好就能用、后台运行、不占终端」：
 
@@ -53,6 +55,8 @@ make install           # 构建 → 复制到 /Applications → open 后台启�
 - 按 `Esc` → 取消本次听写（已经打进去的字保留）
 
 ## 从 Release 下载
+
+每次 push 到 `main` 都会自动生成（或更新）一个 `v<版本号>` 的 Release（不需要手动打 tag；版本号取自代码里的 `AppVersion.marketing`），下载最新的 `BetterDictation-macos-arm64.zip` 即可。
 
 CI 产出的 `.zip` 已做 ad-hoc 签名，但会被 Gatekeeper 打上隔离属性：
 
@@ -89,13 +93,16 @@ Sources/BDSmoke/               端到端冒烟工具（真实音频 → 真实�
 Tests/BetterDictationCoreTests/
 scripts/build-app.sh           无 Xcode 的 .app 组装
 scripts/install.sh             安装到 /Applications 并后台启动
-.github/workflows/build.yml    CI：测试 → 构建 → 打包 → tag 发 Release
+.github/workflows/build.yml    CI：测试 → 构建 → 打包 → push 分支即发 Release
 docs/                          PRD / ARCHITECTURE / DECISIONS
 ```
 
 ## 已知边界
 
-- 讯飞端点在**分句边界**才吐中间结果，不是逐字回声；因此输入框里的文字按句出现。
+- 讯飞端点只在**会话收尾**时返回这一段的文字（实测推流期间连 `ls:false` 中间帧都没有），不是逐字回声。
+  客户端用本地 VAD 在停顿 250ms 后主动收尾并续接新会话，因此文字按**短语**出现，而不是等全部说完；
+  连续说话超过 12 秒后，不再等 250ms 停顿，而是遇到 80ms 的词间间隙就切段；若一直没有间隙，整段继续累积，直到下一次停顿或按停止，不会丢字。
+- 轮换会话时会缓存 PCM，新会话就绪后补喂，不会因为握手而吞字。
 - 边打字边识别意味着「用户中途移动光标」会让后续文字落到新位置 —— 与系统听写相同的固有约束。
-- 结束到终稿通常 < 1s，`finish` 以 6s 超时兜底。
+- 每段收尾到出字通常 < 1s；按下停止后等待终稿的上限为 4s。
 - 依赖第三方私有协议，讯飞客户端升级可能更换凭据或字段（见 `docs/DECISIONS.md` D1）。

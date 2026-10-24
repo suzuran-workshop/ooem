@@ -67,3 +67,42 @@ Karabiner 的 DriverKit 虚拟设备接管层级更低、更稳，但需要安�
 `.github/workflows/build.yml`：`swift test` → `scripts/build-app.sh` → `ditto` 打包 → 上传 artifact；打 `v*` tag 时自动建 Release。GitHub 的 `macos-15` runner 是 Apple Silicon，因此产物天然 arm64。
 
 ad-hoc 签名的包分发后会被 Gatekeeper 隔离，README 给出了 `xattr -dr com.apple.quarantine` 的处理步骤。
+
+## D13：Release 由分支 push 触发，不再依赖 tag
+
+**背景**：原先 CI 只在 `v*` tag 上发 Release，日常 push 只产出 artifact。实际使用中经常忘记打 tag，下载页长期落后于 main。
+
+**决策**：`.github/workflows/build.yml` 监听 `main` / `master` 的 push（以及手动 dispatch），每次构建成功后用代码里的版本号生成 tag（`v<marketing>`）并创建 Release；同一版本重复 push 时更新已有 Release 的资产。PR 只跑测试与构建，不发 Release。
+
+**代价**：同一版本号下的多次 push 会覆盖同一个 Release 的资产，tag 停留在该版本首次发布的提交；追溯具体构建靠 Release 名称里的短 SHA。
+
+**替代方案**：维护一个滚动 `latest` Release 原地覆盖。tag 会停留在首次提交、无法保留历史构建，故不采用。
+
+## D14：本地 VAD 分段 + 会话轮换
+
+**背景**：实测 `100ime-iat-api.xfyun.cn/v2/iat` 在 `status:1` 推流期间**不返回任何中间结果**，只有服务端 VAD 收尾（或本端发 `status:2`）时一次性返回整段文字；把 `vad_speech_tail` 调到 300–500ms 也一样。因此 D9 虽然接了 `onPartial`，真实表现仍是「全部说完才出字」。
+
+**决策**：在客户端做 VAD（`SpeechSegmenter`）：
+
+- 40ms 帧能量 + 回滞阈值判定说话 / 静音；
+- 检测到语音才建立 ASR 会话，长停顿不再空转连接；
+- 停顿 ≥ 250ms 即收尾当前会话，拿到文字立刻注入，再等下一段语音建新会话；
+- 连续说话 12s 后放宽切段条件：不再等 250ms 停顿，遇到第一个 80ms 词间间隙就收尾；若一直没有间隙，整段继续累积，直到下一次停顿或按停止 —— **不丢弃任何音频**，只是出字延迟；
+- `AudioRouter` 在收尾 / 握手期间缓存 PCM，新会话就绪后原样补喂，避免吞字；
+- 每段文本仍经 `LiveTyper` 与已注入内容做差，保证不重复、可回退。
+
+**代价**：文字以「短语」为粒度出现，延迟约等于停顿阈值 + 一次会话收尾（实测 0.3–0.8s）；阈值过小会把一句话切碎，过大又回到高延迟。阈值集中在 `SpeechSegmenter.Config`，可单测调整。
+
+## D15：版本号以 Swift 代码为单一来源
+
+**背景**：D13 的版本号从 `Info.plist` 读取，改版本要动资源文件；代码里也看不到当前版本，运行时无法确认装的是哪一版。
+
+**决策**：`AppVersion.marketing`（`Sources/BetterDictationCore/Support/AppVersion.swift`）是唯一来源：
+
+- `scripts/version.sh` 解析这一行，`scripts/build-app.sh` 与 CI 用它写 `CFBundleShortVersionString`；
+- CI 的 Release tag 为 `v<marketing>`，`CFBundleVersion` 保持 `Info.plist` 里的值；
+- 菜单与 tooltip 显示 `marketing`，装的是哪一版一眼可见。
+
+**代价**：要发新版本必须推进代码里的 `marketing`，只改 tag 或 Release 名称不会改变程序里的版本号。
+
+**替代方案**：用 `Info.plist` 或 `VERSION` 文件作源。资源文件在代码里不可见，运行时也拿不到营销版本，故不采用。

@@ -16,6 +16,8 @@
 │  HotkeyMonitor   CGEventTap(.cghidEventTap)  │
 │  AudioCapture    AVAudioEngine → 16k/mono    │
 │  IFlytekClient   WS 推流 + 结果累积           │
+│  SpeechSegmenter 本地 VAD：说话/停顿切段     │
+│  AudioRouter     会话轮换期间的 PCM 暂存     │
 │  TextInjector    CGEvent Unicode 注入         │
 │  Permissions     TCC 查询与引导                │
 └──────────────────────────────────────────────┘
@@ -26,17 +28,20 @@
 ```
 F5 down (CGEventTap, HID 层)
   → DictationController.toggle()
-  → IFlytekClient.start()        wss://100ime-iat-api.xfyun.cn/v2/iat
   → AudioCapture.start()         48k/1ch Float32（硬件）
       → AVAudioConverter         → 16k/1ch/Int16
       → Data(2 bytes × N)
-  → IFlytekClient.feed()         攒 1280 样本 → base64 → JSON 帧
-  → IFlytekClient.onPartial(累积全文)
+  → AudioRouter.push()           有会话直送；轮换中先暂存
+  → SpeechSegmenter.consume()    40ms 能量判定：speechStarted / commit
+  → speechStarted：IFlytekClient.start() 建会话，补喂预卷音频
+      → IFlytekClient.feed()     攒 1280 样本 → base64 → JSON 帧
+  → commit（停顿 ≥ 250ms）：finish() 收尾本段
       → LiveTyper.update()       与「已注入内容」做差 → 只补增量
       → TextInjector.type(delta) CGEvent 逐段 Unicode 注入（边说边出现）
+      → 等下一段语音再建会话
 F5 down（第二次）
   → AudioCapture.stop()
-  → IFlytekClient.finish()       status:2 尾帧 → 等服务端 ls:true（6s 超时）
+  → IFlytekClient.finish()       status:2 尾帧 → 等服务端终稿（4s 超时兜底）
   → LiveTyper.update(终稿)       只补最后的增量，不重复已注入部分
 ```
 
@@ -48,6 +53,8 @@ F5 down（第二次）
 | `ASR/IFlytekAuth` | RFC1123 日期 + HMAC-SHA256 签名 + 签名 URL |
 | `ASR/IFlytekProtocol` | 80ms 分帧器、首帧/后续帧 JSON、下行帧解析 |
 | `ASR/IFlytekClient` | URLSessionWebSocketTask 会话：推流、背压、结果累积、收尾超时 |
+| `Audio/SpeechSegmenter` | 本地 VAD：40ms 能量 + 回滞阈值，输出 speechStarted / commit |
+| `Audio/AudioRouter` | 会话轮换期间的 PCM 暂存与原子补喂，避免握手/收尾吞字 |
 | `Audio/AudioCapture` | AVAudioEngine tap + AVAudioConverter；麦克风授权 |
 | `Input/TextInjector` | 按 UTF-16 码元切块（不拆代理对）后逐段注入；退格回退 |
 | `Input/LiveTyper` | 累积全文与已注入内容的差量规划（纯函数 `plan`，可单测） |

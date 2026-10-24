@@ -19,6 +19,11 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/BetterDictation"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 
+# 版本号单一来源：AppVersion.swift
+VERSION="$(./scripts/version.sh)"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION}" "$APP/Contents/Info.plist"
+echo "==> 版本 ${VERSION}"
+
 echo "==> 代码签名（ad-hoc）"
 codesign --force --sign - \
   --entitlements Resources/BetterDictation.entitlements \

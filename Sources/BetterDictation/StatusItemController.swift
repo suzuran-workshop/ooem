@@ -21,7 +21,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         super.init()
         buildMenu()
         statusItem.button?.image = StatusIcon.image(for: .idle)
-        statusItem.button?.toolTip = "BetterDictation"
+        statusItem.button?.toolTip = "BetterDictation \(AppVersion.display)"
     }
 
     private func buildMenu() {
@@ -51,6 +51,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(logItem)
 
         menu.addItem(.separator())
+        let versionItem = NSMenuItem(
+            title: "BetterDictation \(AppVersion.display)",
+            action: nil,
+            keyEquivalent: ""
+        )
+        versionItem.isEnabled = false
+        menu.addItem(versionItem)
+
         let quitItem = NSMenuItem(title: "退出 BetterDictation", action: #selector(quitTapped), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)

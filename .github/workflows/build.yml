@@ -3,7 +3,6 @@ name: build
 on:
   push:
     branches: [main, master]
-    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -30,6 +29,17 @@ jobs:
       - name: 单元测试
         run: swift test
 
+      - name: 计算版本号
+        id: version
+        run: |
+          set -euo pipefail
+          base=$(./scripts/version.sh)
+          short=$(git rev-parse --short=7 HEAD)
+          echo "version=$base" >> "$GITHUB_OUTPUT"
+          echo "tag=v${base}" >> "$GITHUB_OUTPUT"
+          echo "sha=$short" >> "$GITHUB_OUTPUT"
+          echo "本次构建：v${base} (${short})"
+
       - name: 构建 .app
         run: ./scripts/build-app.sh release
 
@@ -43,17 +53,25 @@ jobs:
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: BetterDictation-macos-arm64
+          name: BetterDictation-macos-arm64-${{ steps.version.outputs.tag }}
           if-no-files-found: error
           path: |
             dist/BetterDictation-macos-arm64.zip
             dist/BetterDictation-macos-arm64.zip.sha256
 
-      - name: 发布 Release（tag 触发）
-        if: startsWith(github.ref, 'refs/tags/v')
+      # 不再依赖打 tag：分支 push 就会产出 Release，版本号取代码里的 AppVersion.marketing
+      - name: 发布 Release（分支 push 触发）
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: BetterDictation ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          # 同一版本号再次 push 时，更新已有 Release 的资产（overwrite_files 默认 true）
+          overwrite_files: true
+          generate_release_notes: true
+          make_latest: true
+          fail_on_unmatched_files: true
           files: |
             dist/BetterDictation-macos-arm64.zip
             dist/BetterDictation-macos-arm64.zip.sha256
-          generate_release_notes: true
